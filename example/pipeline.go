@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/yhat/scrape"
 	"golang.org/x/net/html"
@@ -12,16 +13,20 @@ import (
 // Set your email here to include in the User-Agent string
 var email = "youremail@gmail.com"
 var urls = []string{
-	"https://news.ycombinator.com/",
-	"https://httpbin.org/get",
+	"http://techcrunch.com/",
 	"https://www.reddit.com/",
 	"https://en.wikipedia.org",
+	"https://news.ycombinator.com/",
+	"https://www.buzzfeed.com/",
+	"http://digg.com",
 }
 
-func respGen(urls []string) <-chan *http.Response {
+func respGen(urls ...string) <-chan *http.Response {
+	var wg sync.WaitGroup
 	out := make(chan *http.Response)
-	go func() {
-		for _, url := range urls {
+	wg.Add(len(urls))
+	for _, url := range urls {
+		go func(url string) {
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
 				panic(err)
@@ -32,46 +37,62 @@ func respGen(urls []string) <-chan *http.Response {
 				panic(err)
 			}
 			out <- resp
-		}
+			wg.Done()
+		}(url)
+	}
+	go func() {
+		wg.Wait()
 		close(out)
 	}()
 	return out
 }
 
 func rootGen(in <-chan *http.Response) <-chan *html.Node {
+	var wg sync.WaitGroup
 	out := make(chan *html.Node)
-	go func() {
-		for resp := range in {
+	for resp := range in {
+		wg.Add(1)
+		go func(resp *http.Response) {
 			root, err := html.Parse(resp.Body)
 			if err != nil {
 				panic(err)
 			}
 			out <- root
-		}
+			wg.Done()
+		}(resp)
+	}
+	go func() {
+		wg.Wait()
 		close(out)
 	}()
 	return out
 }
 
 func titleGen(in <-chan *html.Node) <-chan string {
+	var wg sync.WaitGroup
 	out := make(chan string)
-	go func() {
-		for root := range in {
+	for root := range in {
+		wg.Add(1)
+		go func(root *html.Node) {
 			title, ok := scrape.Find(root, scrape.ByTag(atom.Title))
 			if ok {
 				out <- scrape.Text(title)
 			}
-		}
+			wg.Done()
+		}(root)
+	}
+	go func() {
+		wg.Wait()
 		close(out)
 	}()
 	return out
 }
 
 func main() {
-	// Set up the pipeline to consume the back-to-back output
-	// ending with the final stage of printing the title of
+	// Set up the pipeline to consume back-to-back output
+	// ending with the final stage to print the title of
 	// each web page in the main go routine.
-	for title := range titleGen(rootGen(respGen(urls))) {
+	for title := range titleGen(rootGen(respGen(urls...))) {
 		fmt.Println(title)
 	}
 }
