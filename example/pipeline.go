@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-// Set your email here to include in the User-Agent string
+// Set your email here to include in the User-Agent string.
 var email = "youremail@gmail.com"
 var urls = []string{
 	"http://techcrunch.com/",
